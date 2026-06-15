@@ -197,6 +197,39 @@ def test_session_writer_marker_includes_final_pattern_and_primary_blink_fields(t
     assert rows[0]["fmcw_fixed_trajectory_pair"] == "14:15"
 
 
+def test_session_writer_writes_visual_features_for_label_audit(tmp_path):
+    session = tmp_path / "session"
+    session.mkdir()
+    writer = SessionWriter(session, sample_rate=48_000)
+    writer.open()
+
+    writer.write_visual_feature(
+        {
+            "time_s": "1.230000",
+            "timestamp_ms": 1234,
+            "available": 1,
+            "face_found": 1,
+            "left_ear": "0.210000000",
+            "right_ear": "0.190000000",
+            "left_closed": 1,
+            "right_closed": 1,
+            "is_blink_event": 1,
+            "blink_count": 3,
+            "inference_ms": "12.500000000",
+            "error": "",
+        }
+    )
+    writer.close()
+
+    rows = list(csv.DictReader((session / "visual_features.csv").open(newline="", encoding="utf-8")))
+
+    assert rows[0]["time_s"] == "1.230000"
+    assert rows[0]["timestamp_ms"] == "1234"
+    assert rows[0]["left_ear"] == "0.210000000"
+    assert rows[0]["is_blink_event"] == "1"
+    assert rows[0]["blink_count"] == "3"
+
+
 def test_session_writer_feature_includes_full_fmcw_phase_points(tmp_path):
     session = tmp_path / "session"
     session.mkdir()

@@ -1457,12 +1457,30 @@ class RealtimeHandWaveApp:
             result = self.visual_blink_detector.process_frame(frame)
             self.latest_visual_blink_result = result
             self._overlay_text_snapshot = None
+            if self.writer is not None:
+                self.writer.write_visual_feature(self._visual_feature_row(result))
             if result.is_blink_event and bool(self.config.visual_blink.auto_mark_blinks):
                 self.visual_blink_auto_marker_count += 1
                 self._write_marker(label="blink", key="v")
 
         self._draw_visual_blink_frame(cv2, frame, self.latest_visual_blink_result)
         return frame
+
+    def _visual_feature_row(self, result: VisualBlinkResult) -> dict[str, object]:
+        return {
+            "time_s": f"{self.latest_time_s:.6f}",
+            "timestamp_ms": int(result.timestamp_ms),
+            "available": int(bool(result.available)),
+            "face_found": int(bool(result.face_found)),
+            "left_ear": f"{float(result.left_ear):.9f}",
+            "right_ear": f"{float(result.right_ear):.9f}",
+            "left_closed": int(bool(result.left_closed)),
+            "right_closed": int(bool(result.right_closed)),
+            "is_blink_event": int(bool(result.is_blink_event)),
+            "blink_count": int(result.blink_count),
+            "inference_ms": f"{float(result.inference_ms):.9f}",
+            "error": result.error,
+        }
 
     def _draw_visual_blink_frame(self, cv2, frame: np.ndarray, result: VisualBlinkResult) -> None:
         if not bool(self.config.visual_blink.enabled):

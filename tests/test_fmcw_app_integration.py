@@ -109,6 +109,9 @@ def test_app_visual_blink_auto_mark_writes_blink_key_v():
     written = []
 
     class Writer:
+        def write_visual_feature(self, row):
+            pass
+
         def write_manual_marker(self, time_s, label, key, feature_snapshot, event_id):
             written.append(
                 {
@@ -167,6 +170,35 @@ def test_app_visual_progress_distinguishes_initializing_and_error():
         blink_count=3,
     )
     assert "no-face" in app._visual_blink_progress_text()
+
+
+def test_app_formats_visual_feature_rows_for_csv():
+    app = RealtimeHandWaveApp(AppConfig(mode="fmcw"))
+    app.latest_time_s = 12.3456789
+    result = VisualBlinkResult(
+        enabled=True,
+        available=True,
+        face_found=True,
+        left_ear=0.213456789,
+        right_ear=0.198765432,
+        left_closed=True,
+        right_closed=False,
+        is_blink_event=True,
+        blink_count=4,
+        inference_ms=11.25,
+        timestamp_ms=5678,
+    )
+
+    row = app._visual_feature_row(result)
+
+    assert row["time_s"] == "12.345679"
+    assert row["timestamp_ms"] == 5678
+    assert row["available"] == 1
+    assert row["face_found"] == 1
+    assert row["left_ear"] == "0.213456789"
+    assert row["right_closed"] == 0
+    assert row["is_blink_event"] == 1
+    assert row["blink_count"] == 4
 
 
 def test_fmcw_overlay_uses_taller_split_diagnostic_panel():

@@ -124,6 +124,23 @@ EVENT_FIELDS = [
     "threshold",
 ]
 
+# visual_features.csv 每次视觉推理一行，用来审计自动视觉标记本身是否可靠。
+# 它不作为声学检测输入，只服务离线标注质量检查和 EAR 曲线可视化。
+VISUAL_FEATURE_FIELDS = [
+    "time_s",
+    "timestamp_ms",
+    "available",
+    "face_found",
+    "left_ear",
+    "right_ear",
+    "left_closed",
+    "right_closed",
+    "is_blink_event",
+    "blink_count",
+    "inference_ms",
+    "error",
+]
+
 # manual_markers.csv 是人工按键时刻的状态快照，用来把用户实测标记和检测器内部状态对齐。
 MARKER_FIELDS = [
     "time_s",
@@ -220,9 +237,11 @@ class SessionWriter:
         self._features_handle = None
         self._events_handle = None
         self._markers_handle = None
+        self._visual_features_handle = None
         self._features_writer = None
         self._events_writer = None
         self._markers_writer = None
+        self._visual_features_writer = None
 
     def open(self) -> None:
         self._wav = wave.open(str(self.session_dir / "audio.wav"), "wb")
@@ -237,6 +256,18 @@ class SessionWriter:
         self._events_handle = open(self.session_dir / "events.csv", "w", newline="", encoding="utf-8")
         self._events_writer = csv.DictWriter(self._events_handle, fieldnames=EVENT_FIELDS)
         self._events_writer.writeheader()
+
+        self._visual_features_handle = open(
+            self.session_dir / "visual_features.csv",
+            "w",
+            newline="",
+            encoding="utf-8",
+        )
+        self._visual_features_writer = csv.DictWriter(
+            self._visual_features_handle,
+            fieldnames=VISUAL_FEATURE_FIELDS,
+        )
+        self._visual_features_writer.writeheader()
 
         self._markers_handle = open(self.session_dir / "manual_markers.csv", "w", newline="", encoding="utf-8")
         self._markers_writer = csv.DictWriter(self._markers_handle, fieldnames=MARKER_FIELDS)
@@ -277,6 +308,13 @@ class SessionWriter:
                 "motion_energy": f"{motion_energy:.9f}",
                 "threshold": f"{threshold:.9f}",
             }
+        )
+
+    def write_visual_feature(self, row: Dict) -> None:
+        if self._visual_features_writer is None:
+            raise RuntimeError("SessionWriter is not open")
+        self._visual_features_writer.writerow(
+            {field: row.get(field, "") for field in VISUAL_FEATURE_FIELDS}
         )
 
     def write_manual_marker(
@@ -386,7 +424,12 @@ class SessionWriter:
             json.dump(payload, handle, indent=2, ensure_ascii=False)
 
     def flush(self) -> None:
-        for handle in (self._features_handle, self._events_handle, self._markers_handle):
+        for handle in (
+            self._features_handle,
+            self._events_handle,
+            self._markers_handle,
+            self._visual_features_handle,
+        ):
             if handle is not None:
                 handle.flush()
 
@@ -394,7 +437,12 @@ class SessionWriter:
         if self._wav is not None:
             self._wav.close()
             self._wav = None
-        for attr in ("_features_handle", "_events_handle", "_markers_handle"):
+        for attr in (
+            "_features_handle",
+            "_events_handle",
+            "_markers_handle",
+            "_visual_features_handle",
+        ):
             handle = getattr(self, attr)
             if handle is not None:
                 handle.close()
