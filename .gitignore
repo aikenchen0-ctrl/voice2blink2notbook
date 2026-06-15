@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+sessions/
+sessions_smoke/
+sessions_smoke_debug/
+docs/experiments/
+logs/
+*.egg-info/
+build/
+dist/
+FaceAcousticSensing/
+voice2blink/

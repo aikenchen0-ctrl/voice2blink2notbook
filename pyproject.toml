@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hp-acoustic-wave"
+version = "0.1.0"
+description = "Realtime near-ultrasonic acoustic hand-wave and blink-candidate detector."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "opencv-python>=4.8",
+  "Pillow>=10.0",
+  "sounddevice>=0.4.6",
+  "mediapipe==0.10.14",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+hp-wave-detector = "hp_acoustic_wave.cli:main"
+
+[tool.setuptools]
+packages = ["hp_acoustic_wave"]
+package-dir = { "hp_acoustic_wave" = "." }
