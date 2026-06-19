@@ -101,6 +101,27 @@ def test_app_marker_buttons_write_same_labels_as_keys():
     assert app.manual_large_motion_marker_count == 1
 
 
+def test_app_terminal_keys_write_markers_without_window_focus():
+    app = RealtimeHandWaveApp(AppConfig(mode="fmcw"))
+    app.running = True
+
+    app._enqueue_terminal_key("w")
+    app._enqueue_terminal_key("B")
+    app._enqueue_terminal_key("x")
+
+    assert app._process_terminal_keys() is None
+    assert app.manual_marker_count == 2
+    assert app.manual_large_motion_marker_count == 1
+    assert app.manual_blink_marker_count == 1
+    assert app.running
+
+    app._enqueue_terminal_key("q")
+
+    assert app._process_terminal_keys() == "user_quit"
+    assert not app.running
+    assert app.manual_large_motion_marker_count == 1
+
+
 def test_app_visual_blink_auto_mark_writes_blink_key_v():
     config = AppConfig(mode="fmcw")
     config.visual_blink.enabled = True

@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  visual blink auto labels: enabled by default as key=v when camera/MediaPipe are available")
     print("  keep head/device posture fixed until collection ends")
     print("  fmcw_phase_points logging: enabled")
-    print("  keys: b=manual blink, w=large_motion, q/Esc=quit")
+    print("  keys in terminal or window: b=manual blink, w=large_motion, q/Esc=quit")
     return detector_main(detector_argv)
 
 

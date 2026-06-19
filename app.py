@@ -1,11 +1,12 @@
 import platform
 import queue
+import sys
 import threading
 import time
 from collections import deque
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -79,10 +80,79 @@ class _CameraFrameReader:
             self._thread = None
 
 
+class _TerminalKeyReader:
+    def __init__(self, on_key: Callable[[str], None]):
+        self.on_key = on_key
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> bool:
+        if self._thread is not None:
+            return True
+        if not sys.stdin or not sys.stdin.isatty():
+            return False
+        self._thread = threading.Thread(target=self._run, name="terminal-key-reader", daemon=True)
+        self._thread.start()
+        return True
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+            self._thread = None
+
+    def _run(self) -> None:
+        if platform.system() == "Windows":
+            self._run_windows()
+        else:
+            self._run_posix()
+
+    def _run_windows(self) -> None:
+        try:
+            import msvcrt
+        except ImportError:
+            return
+        while not self._stop_event.is_set():
+            if msvcrt.kbhit():
+                key = msvcrt.getwch()
+                if key in ("\x00", "\xe0"):
+                    if msvcrt.kbhit():
+                        msvcrt.getwch()
+                    continue
+                self.on_key(key)
+            else:
+                time.sleep(0.03)
+
+    def _run_posix(self) -> None:
+        try:
+            import select
+            import termios
+            import tty
+
+            fd = sys.stdin.fileno()
+            previous_attrs = termios.tcgetattr(fd)
+        except Exception:
+            return
+        try:
+            tty.setcbreak(fd)
+            while not self._stop_event.is_set():
+                readable, _, _ = select.select([sys.stdin], [], [], 0.05)
+                if readable:
+                    key = sys.stdin.read(1)
+                    if key:
+                        self.on_key(key)
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, previous_attrs)
+            except Exception:
+                pass
+
+
 class RealtimeHandWaveApp:
     def __init__(self, config: AppConfig):
         self.config = config
         self.audio_queue = queue.Queue(maxsize=64)
+        self.terminal_key_queue = queue.Queue(maxsize=64)
         self.playback_sample_index = 0
         self.previous_feature: Optional[ChunkFeature] = None
         self.fmcw_processor = FmcwStreamProcessor(config.fmcw, config.audio.sample_rate)
@@ -219,6 +289,7 @@ class RealtimeHandWaveApp:
         self.video_writer = None
         self.camera = None
         self.camera_reader: Optional[_CameraFrameReader] = None
+        self.terminal_key_reader: Optional[_TerminalKeyReader] = None
         self.camera_enabled = False
         self.camera_open_seconds: Optional[float] = None
         self.visual_blink_detector = (
@@ -1976,6 +2047,43 @@ class RealtimeHandWaveApp:
                 event_id=self.latest_event_id,
             )
 
+    def _enqueue_terminal_key(self, key: str) -> None:
+        normalized = (key or "").lower()
+        if normalized == "\x1b":
+            normalized = "q"
+        if normalized not in ("m", "b", "w", "q"):
+            return
+        try:
+            self.terminal_key_queue.put_nowait(normalized)
+        except queue.Full:
+            pass
+
+    def _handle_control_key(self, key: int | str) -> Optional[str]:
+        if isinstance(key, str):
+            if not key:
+                return None
+            code = ord(key[0].lower())
+        else:
+            code = int(key)
+        if code in (ord("q"), 27):
+            self.running = False
+            return "user_quit"
+        if code in (ord("m"), ord("b"), ord("w")):
+            self._write_marker_for_key(code)
+        return None
+
+    def _process_terminal_keys(self) -> Optional[str]:
+        shutdown_reason = None
+        while True:
+            try:
+                key = self.terminal_key_queue.get_nowait()
+            except queue.Empty:
+                break
+            reason = self._handle_control_key(key)
+            if reason is not None:
+                shutdown_reason = reason
+        return shutdown_reason
+
     def _latest_feature_snapshot(self):
         if self.config.mode == "fmcw" and self.latest_fmcw_feature is not None:
             tracks = list(self.latest_fmcw_feature.track_values)
@@ -2125,6 +2233,9 @@ class RealtimeHandWaveApp:
         if cv2 is not None:
             self._open_camera(cv2)
             self._open_video_writer(cv2)
+        self.terminal_key_reader = _TerminalKeyReader(self._enqueue_terminal_key)
+        if self.terminal_key_reader.start():
+            print("Terminal keys enabled: b=blink, w=large_motion, q=quit", flush=True)
 
         self.running = True
         shutdown_reason = "completed"
@@ -2155,6 +2266,10 @@ class RealtimeHandWaveApp:
                 ui_frame_interval_s = 1.0 / max(1.0, float(self.config.ui_fps))
                 while self.running:
                     self._profile_count_add("loops", 1)
+                    terminal_shutdown_reason = self._process_terminal_keys()
+                    if terminal_shutdown_reason is not None:
+                        shutdown_reason = terminal_shutdown_reason
+                        break
                     self._process_audio_queue()
                     now = time.monotonic()
                     if cv2 is not None and now >= next_ui_frame_time:
@@ -2185,11 +2300,9 @@ class RealtimeHandWaveApp:
                         cv2.imshow(self.config.window_name, canvas)
                         key = cv2.waitKey(1) & 0xFF
                         self._profile_add("imshow_wait", time.monotonic() - show_started)
-                        if key in (ord("q"), 27):
-                            shutdown_reason = "user_quit"
-                            self.running = False
-                        elif key in (ord("m"), ord("b"), ord("w")):
-                            self._write_marker_for_key(key)
+                        key_shutdown_reason = self._handle_control_key(key)
+                        if key_shutdown_reason is not None:
+                            shutdown_reason = key_shutdown_reason
                     if (
                         self.config.max_duration_s is not None
                         and self.first_audio_time_monotonic is not None
@@ -2218,6 +2331,9 @@ class RealtimeHandWaveApp:
             if self.camera_reader is not None:
                 self.camera_reader.stop()
                 self.camera_reader = None
+            if self.terminal_key_reader is not None:
+                self.terminal_key_reader.stop()
+                self.terminal_key_reader = None
             if self.camera is not None:
                 self.camera.release()
                 self.camera = None
