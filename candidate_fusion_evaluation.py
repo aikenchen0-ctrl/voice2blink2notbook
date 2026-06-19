@@ -6,7 +6,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
-from hp_acoustic_wave.event_evaluation import EventEvaluation, evaluate_events, write_event_evaluation_outputs
+from hp_acoustic_wave.event_evaluation import (
+    EventEvaluation,
+    evaluate_events,
+    visual_face_time_ranges,
+    write_event_evaluation_outputs,
+)
 from hp_acoustic_wave.logged_gate_evaluation import (
     LoggedGateEventRow,
     detect_logged_gate_events,
@@ -182,11 +187,17 @@ def evaluate_candidate_fusion_session(
     sweep_min_vote_evidence: Sequence[float] = (0.0, 0.2, 0.4, 0.6),
     sweep_min_abs_trajectory_value: Sequence[float] = (0.0, 0.1, 0.2, 0.3),
     sweep_min_pair_stability: Sequence[float] = (0.0, 0.5, 0.8),
+    require_visual_face: bool = False,
 ) -> CandidateFusionEvaluation:
     session_dir = Path(session_dir)
     features = read_csv_rows(session_dir / "features.csv")
     markers = read_csv_rows(session_dir / "manual_markers.csv")
     session_name = session_dir.name
+    valid_time_ranges = (
+        visual_face_time_ranges(session_dir / "visual_features.csv")
+        if bool(require_visual_face)
+        else None
+    )
 
     primary_events = detect_primary_blink_peaks(
         session_name=session_name,
@@ -222,6 +233,7 @@ def evaluate_candidate_fusion_session(
         tolerance_s=tolerance_s,
         event_labels=("primary_blink_peak",),
         ignore_startup_s=ignore_startup_s,
+        valid_time_ranges=valid_time_ranges,
     )
     fallback_evaluation = evaluate_events(
         session_name=session_name,
@@ -230,6 +242,7 @@ def evaluate_candidate_fusion_session(
         tolerance_s=tolerance_s,
         event_labels=(fallback_event_column,),
         ignore_startup_s=ignore_startup_s,
+        valid_time_ranges=valid_time_ranges,
     )
     fused_evaluation = evaluate_events(
         session_name=session_name,
@@ -238,6 +251,7 @@ def evaluate_candidate_fusion_session(
         tolerance_s=tolerance_s,
         event_labels=("fused_blink_candidate",),
         ignore_startup_s=ignore_startup_s,
+        valid_time_ranges=valid_time_ranges,
     )
     summary = summarize_candidate_fusion(
         session_name=session_name,
@@ -268,6 +282,7 @@ def evaluate_candidate_fusion_session(
         min_vote_values=sweep_min_vote_evidence,
         min_abs_trajectory_values=sweep_min_abs_trajectory_value,
         min_pair_stability_values=sweep_min_pair_stability,
+        valid_time_ranges=valid_time_ranges,
     )
     return CandidateFusionEvaluation(
         session=session_name,
@@ -531,6 +546,7 @@ def sweep_fallback_fmcw_filters(
     min_vote_values: Sequence[float],
     min_abs_trajectory_values: Sequence[float],
     min_pair_stability_values: Sequence[float],
+    valid_time_ranges: Sequence[tuple[float, float]] | None = None,
 ) -> tuple[CandidateFusionFmcwSweepRow, ...]:
     diagnostics_by_event_id = {int(row.event_id): row for row in diagnostics}
     rows: list[CandidateFusionFmcwSweepRow] = []
@@ -555,6 +571,7 @@ def sweep_fallback_fmcw_filters(
                     tolerance_s=tolerance_s,
                     event_labels=("fused_blink_candidate",),
                     ignore_startup_s=ignore_startup_s,
+                    valid_time_ranges=valid_time_ranges,
                 )
                 negative_total, negative_conflicts, negative_conflict_rate = _negative_conflict_metric(
                     session_name=session_name,

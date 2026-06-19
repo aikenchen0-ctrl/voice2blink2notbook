@@ -77,10 +77,14 @@ def evaluate_session_events(
     positive_labels: Sequence[str] = ("blink",),
     event_labels: Sequence[str] | None = None,
     ignore_startup_s: float = 0.0,
+    require_visual_face: bool = False,
 ) -> EventEvaluation:
     session_dir = Path(session_dir)
     markers = read_csv_rows(session_dir / "manual_markers.csv")
     events = read_csv_rows(session_dir / "events.csv")
+    valid_time_ranges = None
+    if require_visual_face:
+        valid_time_ranges = visual_face_time_ranges(session_dir / "visual_features.csv")
     labels = tuple(event_labels or infer_event_labels(events))
     return evaluate_events(
         session_name=session_dir.name,
@@ -90,6 +94,7 @@ def evaluate_session_events(
         positive_labels=positive_labels,
         event_labels=labels,
         ignore_startup_s=ignore_startup_s,
+        valid_time_ranges=valid_time_ranges,
     )
 
 
@@ -102,18 +107,22 @@ def evaluate_events(
     positive_labels: Sequence[str] = ("blink",),
     event_labels: Sequence[str] = ("blink_candidate",),
     ignore_startup_s: float = 0.0,
+    valid_time_ranges: Sequence[tuple[float, float]] | None = None,
 ) -> EventEvaluation:
     positives = tuple(positive_labels)
     accepted_events = tuple(event_labels)
+    ranges = tuple(valid_time_ranges or ())
     marker_rows = [
         (index, row)
         for index, row in enumerate(markers)
         if row.get("label", "") in positives and _float(row.get("time_s")) >= float(ignore_startup_s)
+        and _time_in_ranges(_float(row.get("time_s")), ranges)
     ]
     event_rows = [
         (index, row)
         for index, row in enumerate(events)
         if row.get("label", "") in accepted_events and _float(row.get("time_s")) >= float(ignore_startup_s)
+        and _time_in_ranges(_float(row.get("time_s")), ranges)
     ]
 
     candidate_pairs = []
@@ -317,6 +326,36 @@ def read_csv_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def visual_face_time_ranges(
+    visual_features_path: Path,
+    *,
+    max_gap_s: float = 0.35,
+    pad_s: float = 0.05,
+) -> tuple[tuple[float, float], ...]:
+    path = Path(visual_features_path)
+    if not path.exists() or path.stat().st_size <= 0:
+        return tuple()
+    rows = read_csv_rows(path)
+    valid_times = [
+        _float(row.get("time_s"))
+        for row in rows
+        if _bool(row.get("available")) and _bool(row.get("face_found"))
+    ]
+    if not valid_times:
+        return tuple()
+    valid_times = sorted(valid_times)
+    ranges: list[tuple[float, float]] = []
+    start = valid_times[0]
+    previous = valid_times[0]
+    for current in valid_times[1:]:
+        if float(current) - float(previous) > float(max_gap_s):
+            ranges.append((max(0.0, float(start) - float(pad_s)), float(previous) + float(pad_s)))
+            start = current
+        previous = current
+    ranges.append((max(0.0, float(start) - float(pad_s)), float(previous) + float(pad_s)))
+    return tuple(ranges)
+
+
 def _write_dataclass_csv(path: Path, rows: Sequence[object]) -> None:
     with Path(path).open("w", newline="", encoding="utf-8") as handle:
         if not rows:
@@ -332,6 +371,13 @@ def _nearest_offset(event_time: float, marker_times: Sequence[float]) -> float:
         return 0.0
     nearest = min(marker_times, key=lambda marker_time: abs(float(event_time) - float(marker_time)))
     return float(event_time) - float(nearest)
+
+
+def _time_in_ranges(time_s: float, ranges: Sequence[tuple[float, float]]) -> bool:
+    if not ranges:
+        return True
+    value = float(time_s)
+    return any(float(start) <= value <= float(end) for start, end in ranges)
 
 
 def _event_metric_row(
@@ -366,6 +412,10 @@ def _float(value: str | None) -> float:
     if value in (None, ""):
         return 0.0
     return float(value)
+
+
+def _bool(value: str | None) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
 
 
 def _ratio(numerator: float, denominator: float) -> float:

@@ -4,6 +4,7 @@ from hp_acoustic_wave.event_evaluation import (
     evaluate_events,
     infer_event_labels,
     summarize_event_evaluations,
+    visual_face_time_ranges,
     write_event_aggregate_outputs,
     write_event_evaluation_outputs,
 )
@@ -80,6 +81,47 @@ def test_event_evaluation_ignore_startup_filters_markers_and_events():
     assert metric.marker_total == 1
     assert metric.event_total == 1
     assert metric.true_positive == 1
+
+
+def test_event_evaluation_can_mask_to_visual_face_ranges():
+    markers = [
+        {"time_s": "1.00", "label": "blink", "key": "v"},
+        {"time_s": "5.00", "label": "blink", "key": "v"},
+    ]
+    events = [
+        {"time_s": "1.10", "label": "blink_candidate", "event_id": "1", "method": "twinkle", "score": "0.4"},
+        {"time_s": "5.10", "label": "blink_candidate", "event_id": "2", "method": "twinkle", "score": "0.4"},
+        {"time_s": "8.00", "label": "blink_candidate", "event_id": "3", "method": "twinkle", "score": "0.4"},
+    ]
+
+    evaluation = evaluate_events(
+        session_name="s",
+        markers=markers,
+        events=events,
+        tolerance_s=0.5,
+        valid_time_ranges=((0.5, 2.0),),
+    )
+
+    metric = evaluation.metrics[0]
+    assert metric.marker_total == 1
+    assert metric.event_total == 1
+    assert metric.true_positive == 1
+    assert metric.false_positive == 0
+
+
+def test_visual_face_time_ranges_groups_available_face_rows(tmp_path):
+    path = tmp_path / "visual_features.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["time_s", "available", "face_found"])
+        writer.writeheader()
+        writer.writerow({"time_s": "1.00", "available": "1", "face_found": "1"})
+        writer.writerow({"time_s": "1.10", "available": "1", "face_found": "1"})
+        writer.writerow({"time_s": "2.00", "available": "1", "face_found": "0"})
+        writer.writerow({"time_s": "3.00", "available": "1", "face_found": "1"})
+
+    ranges = visual_face_time_ranges(path, max_gap_s=0.35, pad_s=0.0)
+
+    assert ranges == ((1.0, 1.1), (3.0, 3.0))
 
 
 def test_infer_event_labels_prefers_confirmed_fmcw_over_candidates():

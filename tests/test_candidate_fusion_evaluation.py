@@ -101,6 +101,64 @@ def test_candidate_fusion_session_reports_rescued_marker_and_added_fp(tmp_path):
     assert filtered.negative_conflict_total == 0
 
 
+def test_candidate_fusion_can_mask_events_to_visual_face_ranges(tmp_path):
+    session = tmp_path / "session"
+    session.mkdir()
+    feature_rows = [
+        _feature_row(0.0, 0.01, 0),
+        _feature_row(1.0, 0.08, 0),
+        _feature_row(1.1, 0.02, 0),
+        _feature_row(5.0, 0.09, 1),
+        _feature_row(5.1, 0.02, 0),
+    ]
+    marker_rows = [
+        {"time_s": "1.0", "label": "blink", "key": "v"},
+    ]
+    visual_rows = [
+        {"time_s": "0.9", "available": "1", "face_found": "1"},
+        {"time_s": "1.0", "available": "1", "face_found": "1"},
+        {"time_s": "1.1", "available": "1", "face_found": "1"},
+        {"time_s": "5.0", "available": "1", "face_found": "0"},
+    ]
+    _write_csv(session / "features.csv", feature_rows)
+    _write_csv(session / "manual_markers.csv", marker_rows)
+    _write_csv(session / "visual_features.csv", visual_rows)
+
+    unmasked = evaluate_candidate_fusion_session(
+        session,
+        tolerance_s=0.3,
+        ignore_startup_s=0.0,
+        primary_min_score=0.075,
+        primary_min_ratio=1.0,
+        primary_max_score=0.25,
+        primary_refractory_s=0.5,
+        fallback_event_column="twinkle_candidate_peak",
+        fallback_score_column="blink_score",
+        fallback_max_score=0.20,
+        fallback_refractory_s=0.5,
+        fallback_exclusion_s=0.3,
+    )
+    masked = evaluate_candidate_fusion_session(
+        session,
+        tolerance_s=0.3,
+        ignore_startup_s=0.0,
+        primary_min_score=0.075,
+        primary_min_ratio=1.0,
+        primary_max_score=0.25,
+        primary_refractory_s=0.5,
+        fallback_event_column="twinkle_candidate_peak",
+        fallback_score_column="blink_score",
+        fallback_max_score=0.20,
+        fallback_refractory_s=0.5,
+        fallback_exclusion_s=0.3,
+        require_visual_face=True,
+    )
+
+    assert unmasked.fused_evaluation.metrics[0].false_positive == 1
+    assert masked.fused_evaluation.metrics[0].false_positive == 0
+    assert masked.fused_evaluation.metrics[0].true_positive == 1
+
+
 def test_aggregate_candidate_fusion_sums_sessions_and_negative_conflicts(tmp_path):
     session_a = _write_candidate_fusion_session(
         tmp_path / "session_a",

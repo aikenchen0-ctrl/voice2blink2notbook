@@ -26,6 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("session_dir", help="Session directory containing features.csv and manual_markers.csv.")
     parser.add_argument("--tolerance", type=float, default=0.8, help="Maximum event-marker offset in seconds.")
     parser.add_argument("--ignore-startup", type=float, default=2.0, help="Ignore markers/events before this time.")
+    parser.add_argument(
+        "--require-visual-face",
+        action="store_true",
+        help="Only score markers/events inside visual_features.csv rows where visual is available and a face is found.",
+    )
     parser.add_argument("--primary-min-score", type=float, default=0.04)
     parser.add_argument("--primary-min-ratio", type=float, default=0.8)
     parser.add_argument("--primary-max-score", type=float, default=0.25)
@@ -80,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         fallback_refractory_s=float(args.fallback_refractory),
         fallback_exclusion_s=float(args.fallback_exclusion),
         diagnostic_window_s=float(args.diagnostic_window),
+        require_visual_face=bool(args.require_visual_face),
     )
     write_candidate_fusion_outputs(evaluation, output_dir)
 
