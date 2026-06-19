@@ -1,4 +1,8 @@
 from hp_acoustic_wave.fixed_posture_study import decide_fixed_posture_study
+from scripts.evaluate_fixed_posture_study import (
+    _phase_pair_gate_has_enough_labels,
+    _write_skipped_phase_pair_summary,
+)
 
 
 def test_decide_fixed_posture_study_requires_enough_labels_first():
@@ -75,3 +79,34 @@ def test_decide_fixed_posture_study_passes_when_all_gates_are_met():
     assert decision.marker_requirements_met
     assert decision.phase_point_logging_met
     assert decision.fmcw_physical_line_met
+
+
+def test_phase_pair_gate_waits_for_blink_and_negative_labels():
+    assert not _phase_pair_gate_has_enough_labels(
+        blink_marker_total=80,
+        negative_marker_total=0,
+        min_blink_markers=40,
+        min_negative_markers=20,
+    )
+    assert _phase_pair_gate_has_enough_labels(
+        blink_marker_total=80,
+        negative_marker_total=20,
+        min_blink_markers=40,
+        min_negative_markers=20,
+    )
+
+
+def test_skipped_phase_pair_summary_is_machine_readable(tmp_path):
+    summary = _write_skipped_phase_pair_summary(
+        tmp_path,
+        reason="insufficient_fixed_posture_labels",
+        blink_marker_total=187,
+        negative_marker_total=0,
+        min_blink_markers=40,
+        min_negative_markers=20,
+    )
+
+    assert summary["skipped"] is True
+    assert summary["recommended_line_pair"] is None
+    assert summary["negative_marker_total"] == 0
+    assert (tmp_path / "summary.json").exists()

@@ -107,32 +107,50 @@ def main(argv: list[str] | None = None) -> int:
         for session_dir in args.session_dirs
     ]
     _write_marker_summaries(output_dir / "fixed_posture_marker_summary.csv", marker_summaries)
+    blink_marker_total = sum(summary.blink_markers for summary in marker_summaries)
+    negative_marker_total = sum(summary.negative_markers for summary in marker_summaries)
+    phase_point_log_session_count = sum(1 for summary in marker_summaries if summary.has_phase_point_log)
 
     phase_pair_dir = output_dir / "phase_pair"
-    phase_pair_summary = _run_phase_pair_gate(
-        [Path(session_dir) for session_dir in args.session_dirs],
-        output_dir=phase_pair_dir,
-        negative_labels=negative_labels,
-        center_offsets=_parse_offset_sweep(args.center_offset_sweep, float(args.center_offset)),
-        metric=str(args.metric),
-        marker_window_s=float(args.window),
-        background_window_s=float(args.background_window),
-        template_points=int(args.template_points),
-        min_recommend_hit_rate=float(args.min_recommend_hit_rate),
-        min_recommend_separation=float(args.min_recommend_separation),
-        min_recommend_line_hit_rate=float(args.min_recommend_line_hit_rate),
-        min_recommend_line_separation=float(args.min_recommend_line_separation),
-    )
+    if _phase_pair_gate_has_enough_labels(
+        blink_marker_total=blink_marker_total,
+        negative_marker_total=negative_marker_total,
+        min_blink_markers=int(args.min_blink_markers),
+        min_negative_markers=int(args.min_negative_markers),
+    ):
+        phase_pair_summary = _run_phase_pair_gate(
+            [Path(session_dir) for session_dir in args.session_dirs],
+            output_dir=phase_pair_dir,
+            negative_labels=negative_labels,
+            center_offsets=_parse_offset_sweep(args.center_offset_sweep, float(args.center_offset)),
+            metric=str(args.metric),
+            marker_window_s=float(args.window),
+            background_window_s=float(args.background_window),
+            template_points=int(args.template_points),
+            min_recommend_hit_rate=float(args.min_recommend_hit_rate),
+            min_recommend_separation=float(args.min_recommend_separation),
+            min_recommend_line_hit_rate=float(args.min_recommend_line_hit_rate),
+            min_recommend_line_separation=float(args.min_recommend_line_separation),
+        )
+    else:
+        phase_pair_summary = _write_skipped_phase_pair_summary(
+            phase_pair_dir,
+            reason="insufficient_fixed_posture_labels",
+            blink_marker_total=blink_marker_total,
+            negative_marker_total=negative_marker_total,
+            min_blink_markers=int(args.min_blink_markers),
+            min_negative_markers=int(args.min_negative_markers),
+        )
 
     fusion_dir = output_dir / "candidate_fusion"
     fusion_summary = _run_candidate_fusion_gate(args, fusion_dir)
 
     fused_metrics = fusion_summary.get("fused", {})
     decision = decide_fixed_posture_study(
-        blink_marker_total=sum(summary.blink_markers for summary in marker_summaries),
-        negative_marker_total=sum(summary.negative_markers for summary in marker_summaries),
+        blink_marker_total=blink_marker_total,
+        negative_marker_total=negative_marker_total,
         session_count=len(marker_summaries),
-        phase_point_log_session_count=sum(1 for summary in marker_summaries if summary.has_phase_point_log),
+        phase_point_log_session_count=phase_point_log_session_count,
         recommended_pair=phase_pair_summary.get("recommended_line_pair"),
         fused_recall=float(fused_metrics.get("recall", 0.0)),
         fused_precision=float(fused_metrics.get("precision", 0.0)),
@@ -148,9 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = {
         "sessions": [asdict(row) for row in marker_summaries],
         "marker_totals": {
-            "blink": sum(row.blink_markers for row in marker_summaries),
-            "negative": sum(row.negative_markers for row in marker_summaries),
-            "phase_point_log_sessions": sum(1 for row in marker_summaries if row.has_phase_point_log),
+            "blink": blink_marker_total,
+            "negative": negative_marker_total,
+            "phase_point_log_sessions": phase_point_log_session_count,
         },
         "phase_pair": phase_pair_summary,
         "candidate_fusion": fusion_summary,
@@ -188,6 +206,46 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"decision {decision.status}: {decision.recommendation}")
     return 0
+
+
+def _phase_pair_gate_has_enough_labels(
+    *,
+    blink_marker_total: int,
+    negative_marker_total: int,
+    min_blink_markers: int,
+    min_negative_markers: int,
+) -> bool:
+    return int(blink_marker_total) >= int(min_blink_markers) and int(negative_marker_total) >= int(
+        min_negative_markers
+    )
+
+
+def _write_skipped_phase_pair_summary(
+    output_dir: Path,
+    *,
+    reason: str,
+    blink_marker_total: int,
+    negative_marker_total: int,
+    min_blink_markers: int,
+    min_negative_markers: int,
+) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "skipped": True,
+        "reason": reason,
+        "recommended_pair": None,
+        "recommended_line_pair": None,
+        "best_pair": None,
+        "best_pair_blink_hit_rate": 0.0,
+        "best_line_pair": None,
+        "best_line_blink_hit_rate": 0.0,
+        "blink_marker_total": int(blink_marker_total),
+        "negative_marker_total": int(negative_marker_total),
+        "min_blink_markers": int(min_blink_markers),
+        "min_negative_markers": int(min_negative_markers),
+    }
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    return summary
 
 
 def _run_phase_pair_gate(
