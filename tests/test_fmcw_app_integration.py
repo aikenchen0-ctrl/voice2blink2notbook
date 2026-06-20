@@ -346,6 +346,10 @@ def test_fmcw_primary_blink_peak_gate_can_open_confirm_window(tmp_path):
 
     assert app.latest_fmcw_primary_blink_is_event
     assert app.latest_fmcw_primary_blink_event_id == 1
+    assert not app.latest_fmcw_primary_detector_is_event
+    assert app.latest_fmcw_primary_peak_is_event
+    assert app.latest_fmcw_primary_peak_event_id == 1
+    assert app.latest_fmcw_primary_peak_score == 0.08
     assert app.pending_fmcw_candidate_id == 1
     assert app.pending_fmcw_candidate_source == "primary_blink"
     assert app.last_detection_method == "fmcw_primary_blink"

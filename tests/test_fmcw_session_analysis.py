@@ -171,6 +171,14 @@ def test_session_writer_marker_includes_final_pattern_and_primary_blink_fields(t
             "fmcw_final_pattern": "1",
             "blink_score": 0.12,
             "blink_threshold": 0.04,
+            "blink_detector_event_id": 6,
+            "blink_detector_is_event": 0,
+            "blink_detector_method": "twinkle",
+            "blink_peak_event_id": 7,
+            "blink_peak_is_event": 1,
+            "blink_peak_score": 0.12,
+            "blink_peak_threshold": 0.04,
+            "blink_peak_ratio": 3.0,
             "blink_event_id": 7,
             "blink_is_event": 1,
             "blink_method": "twinkle",
@@ -188,6 +196,14 @@ def test_session_writer_marker_includes_final_pattern_and_primary_blink_fields(t
     assert rows[0]["fmcw_final_pattern"] == "1"
     assert rows[0]["blink_score"] == "0.120000000"
     assert rows[0]["blink_threshold"] == "0.040000000"
+    assert rows[0]["blink_detector_event_id"] == "6"
+    assert rows[0]["blink_detector_is_event"] == "0"
+    assert rows[0]["blink_detector_method"] == "twinkle"
+    assert rows[0]["blink_peak_event_id"] == "7"
+    assert rows[0]["blink_peak_is_event"] == "1"
+    assert rows[0]["blink_peak_score"] == "0.120000000"
+    assert rows[0]["blink_peak_threshold"] == "0.040000000"
+    assert rows[0]["blink_peak_ratio"] == "3.000000000"
     assert rows[0]["blink_event_id"] == "7"
     assert rows[0]["blink_is_event"] == "1"
     assert rows[0]["blink_method"] == "twinkle"

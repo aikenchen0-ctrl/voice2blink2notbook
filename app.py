@@ -191,6 +191,14 @@ class RealtimeHandWaveApp:
         self.latest_fmcw_primary_blink_threshold = config.blink.min_score
         self.latest_fmcw_primary_blink_baseline = 0.0
         self.latest_fmcw_primary_blink_mad = 0.0
+        self.latest_fmcw_primary_detector_event_id = 0
+        self.latest_fmcw_primary_detector_is_event = False
+        self.latest_fmcw_primary_detector_method = ""
+        self.latest_fmcw_primary_peak_event_id = 0
+        self.latest_fmcw_primary_peak_is_event = False
+        self.latest_fmcw_primary_peak_score = 0.0
+        self.latest_fmcw_primary_peak_threshold = 0.0
+        self.latest_fmcw_primary_peak_ratio = 0.0
         self.latest_fmcw_primary_blink_event_id = 0
         self.latest_fmcw_primary_blink_is_event = False
         self.latest_fmcw_primary_blink_method = ""
@@ -594,6 +602,9 @@ class RealtimeHandWaveApp:
         self.latest_fmcw_primary_blink_threshold = float(detection.threshold)
         self.latest_fmcw_primary_blink_baseline = float(detection.baseline)
         self.latest_fmcw_primary_blink_mad = float(detection.mad)
+        self.latest_fmcw_primary_detector_event_id = int(detection.event_id)
+        self.latest_fmcw_primary_detector_is_event = bool(detection.is_event)
+        self.latest_fmcw_primary_detector_method = str(detection.method)
         self.latest_fmcw_primary_blink_event_id = int(detection.event_id)
         self.latest_fmcw_primary_blink_is_event = bool(detection.is_event)
         self.latest_fmcw_primary_blink_method = detection.method
@@ -605,8 +616,19 @@ class RealtimeHandWaveApp:
                 detection.score,
                 detection.threshold,
             )
+            self.latest_fmcw_primary_peak_event_id = int(peak_result.event_id)
+            self.latest_fmcw_primary_peak_is_event = bool(peak_result.is_event)
+            self.latest_fmcw_primary_peak_score = float(peak_result.score)
+            self.latest_fmcw_primary_peak_threshold = float(peak_result.threshold)
+            self.latest_fmcw_primary_peak_ratio = float(peak_result.ratio)
             self.latest_fmcw_primary_blink_event_id = int(peak_result.event_id)
             self.latest_fmcw_primary_blink_is_event = bool(peak_result.is_event)
+        else:
+            self.latest_fmcw_primary_peak_event_id = 0
+            self.latest_fmcw_primary_peak_is_event = False
+            self.latest_fmcw_primary_peak_score = 0.0
+            self.latest_fmcw_primary_peak_threshold = 0.0
+            self.latest_fmcw_primary_peak_ratio = 0.0
         is_event = bool(peak_result.is_event if peak_result is not None else detection.is_event)
         if not is_event:
             return
@@ -733,6 +755,30 @@ class RealtimeHandWaveApp:
             else "",
             "blink_mad": f"{self.latest_fmcw_primary_blink_mad:.9f}"
             if self.fmcw_primary_blink_detector is not None
+            else "",
+            "blink_detector_event_id": self.latest_fmcw_primary_detector_event_id
+            if self.fmcw_primary_blink_detector is not None
+            else "",
+            "blink_detector_is_event": int(self.latest_fmcw_primary_detector_is_event)
+            if self.fmcw_primary_blink_detector is not None
+            else "",
+            "blink_detector_method": self.latest_fmcw_primary_detector_method
+            if self.fmcw_primary_blink_detector is not None
+            else "",
+            "blink_peak_event_id": self.latest_fmcw_primary_peak_event_id
+            if self.fmcw_primary_blink_peak_gate is not None
+            else "",
+            "blink_peak_is_event": int(self.latest_fmcw_primary_peak_is_event)
+            if self.fmcw_primary_blink_peak_gate is not None
+            else "",
+            "blink_peak_score": f"{self.latest_fmcw_primary_peak_score:.9f}"
+            if self.fmcw_primary_blink_peak_gate is not None
+            else "",
+            "blink_peak_threshold": f"{self.latest_fmcw_primary_peak_threshold:.9f}"
+            if self.fmcw_primary_blink_peak_gate is not None
+            else "",
+            "blink_peak_ratio": f"{self.latest_fmcw_primary_peak_ratio:.9f}"
+            if self.fmcw_primary_blink_peak_gate is not None
             else "",
             "is_event": int(self.latest_fmcw_primary_blink_is_event or self.latest_fmcw_candidate_is_event),
             "event_id": self.latest_event_id,
@@ -2138,6 +2184,14 @@ class RealtimeHandWaveApp:
                 "blink_threshold": self.latest_fmcw_primary_blink_threshold,
                 "blink_baseline": self.latest_fmcw_primary_blink_baseline,
                 "blink_mad": self.latest_fmcw_primary_blink_mad,
+                "blink_detector_event_id": self.latest_fmcw_primary_detector_event_id,
+                "blink_detector_is_event": int(self.latest_fmcw_primary_detector_is_event),
+                "blink_detector_method": self.latest_fmcw_primary_detector_method,
+                "blink_peak_event_id": self.latest_fmcw_primary_peak_event_id,
+                "blink_peak_is_event": int(self.latest_fmcw_primary_peak_is_event),
+                "blink_peak_score": self.latest_fmcw_primary_peak_score,
+                "blink_peak_threshold": self.latest_fmcw_primary_peak_threshold,
+                "blink_peak_ratio": self.latest_fmcw_primary_peak_ratio,
                 "blink_event_id": self.latest_fmcw_primary_blink_event_id,
                 "blink_is_event": int(self.latest_fmcw_primary_blink_is_event),
                 "blink_method": self.latest_fmcw_primary_blink_method,
