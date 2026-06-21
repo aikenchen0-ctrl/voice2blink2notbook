@@ -4,6 +4,7 @@ import csv
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Sequence
 
 from hp_acoustic_wave.blink_layer_evaluation import (
     evaluate_blink_layers_session,
@@ -42,6 +43,10 @@ class PostCollectionSummaryRow:
     fused_recall: float
     fused_precision: float
     fused_f1: float
+    fused_marker_total: int
+    fused_event_total: int
+    fused_true_positive: int
+    fused_false_negative: int
     fused_false_positive: int
     fused_negative_conflicts: int
     sweep_min_recall: float
@@ -62,6 +67,38 @@ class PostCollectionEvaluation:
     summary: PostCollectionSummaryRow
 
 
+@dataclass(frozen=True)
+class PostCollectionDatasetSummaryRow:
+    session: str
+    session_count: int
+    visual_face_ready_sessions: int
+    visual_face_problem_sessions: int
+    blink_markers: int
+    negative_markers: int
+    min_blink_markers: int
+    min_negative_markers: int
+    fused_marker_total: int
+    fused_event_total: int
+    fused_true_positive: int
+    fused_false_negative: int
+    fused_false_positive: int
+    fused_recall: float
+    fused_precision: float
+    fused_f1: float
+    fused_negative_conflicts: int
+    reaches_target_recall: bool
+    reaches_min_precision: bool
+    decision_status: str
+    recommendation: str
+
+
+@dataclass(frozen=True)
+class PostCollectionDatasetEvaluation:
+    session: str
+    summaries: tuple[PostCollectionSummaryRow, ...]
+    summary: PostCollectionDatasetSummaryRow
+
+
 def evaluate_post_collection_session(
     session_dir: Path,
     *,
@@ -70,6 +107,7 @@ def evaluate_post_collection_session(
     ignore_startup_s: float = 2.0,
     require_visual_face: bool = True,
     min_visual_face_found_rate: float = 0.50,
+    min_blink_markers: int = 1,
     min_negative_markers: int = 20,
     target_recall: float = 0.95,
     min_precision: float = 0.80,
@@ -120,6 +158,7 @@ def evaluate_post_collection_session(
     sweep_best = best_sweep[0] if best_sweep else None
 
     needs_negative_labels = int(marker_summary.negative_markers) < int(min_negative_markers)
+    needs_blink_labels = int(marker_summary.blink_markers) < int(min_blink_markers)
     reaches_target_recall = float(fused_metric.recall) >= float(target_recall)
     reaches_min_precision = float(fused_metric.precision) >= float(min_precision)
     needs_visual_face = (
@@ -129,6 +168,7 @@ def evaluate_post_collection_session(
     )
     decision_status, recommendation = decide_post_collection_next_step(
         needs_visual_face=needs_visual_face,
+        needs_blink_labels=needs_blink_labels,
         needs_negative_labels=needs_negative_labels,
         reaches_target_recall=reaches_target_recall,
         reaches_min_precision=reaches_min_precision,
@@ -151,6 +191,10 @@ def evaluate_post_collection_session(
         fused_recall=float(fused_metric.recall),
         fused_precision=float(fused_metric.precision),
         fused_f1=float(fused_metric.f1),
+        fused_marker_total=int(fused_metric.marker_total),
+        fused_event_total=int(fused_metric.event_total),
+        fused_true_positive=int(fused_metric.true_positive),
+        fused_false_negative=int(fused_metric.false_negative),
         fused_false_positive=int(fused_metric.false_positive),
         fused_negative_conflicts=int(fusion_eval.summary.fused_negative_conflict_total),
         sweep_min_recall=float(sweep_min_recall),
@@ -169,6 +213,119 @@ def evaluate_post_collection_session(
     return evaluation
 
 
+def evaluate_post_collection_dataset(
+    session_dirs: Sequence[Path],
+    *,
+    output_dir: Path,
+    tolerance_s: float = 0.8,
+    ignore_startup_s: float = 2.0,
+    require_visual_face: bool = True,
+    min_visual_face_found_rate: float = 0.50,
+    min_blink_markers: int = 40,
+    min_negative_markers: int = 20,
+    target_recall: float = 0.95,
+    min_precision: float = 0.80,
+    sweep_min_recall: float = 0.85,
+) -> PostCollectionDatasetEvaluation:
+    session_paths = tuple(Path(path) for path in session_dirs)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    session_summaries = []
+    for session_dir in session_paths:
+        evaluation = evaluate_post_collection_session(
+            session_dir,
+            output_dir=output_dir / "sessions" / session_dir.name,
+            tolerance_s=float(tolerance_s),
+            ignore_startup_s=float(ignore_startup_s),
+            require_visual_face=bool(require_visual_face),
+            min_visual_face_found_rate=float(min_visual_face_found_rate),
+            min_blink_markers=int(min_blink_markers),
+            min_negative_markers=int(min_negative_markers),
+            target_recall=float(target_recall),
+            min_precision=float(min_precision),
+            sweep_min_recall=float(sweep_min_recall),
+        )
+        session_summaries.append(evaluation.summary)
+
+    summary = summarize_post_collection_dataset(
+        session_summaries,
+        min_visual_face_found_rate=float(min_visual_face_found_rate),
+        min_blink_markers=int(min_blink_markers),
+        min_negative_markers=int(min_negative_markers),
+        target_recall=float(target_recall),
+        min_precision=float(min_precision),
+    )
+    evaluation = PostCollectionDatasetEvaluation(
+        session="ALL",
+        summaries=tuple(session_summaries),
+        summary=summary,
+    )
+    write_post_collection_dataset_outputs(evaluation, output_dir)
+    return evaluation
+
+
+def summarize_post_collection_dataset(
+    summaries: Sequence[PostCollectionSummaryRow],
+    *,
+    min_visual_face_found_rate: float = 0.50,
+    min_blink_markers: int = 40,
+    min_negative_markers: int = 20,
+    target_recall: float = 0.95,
+    min_precision: float = 0.80,
+) -> PostCollectionDatasetSummaryRow:
+    rows = tuple(summaries)
+    blink_markers = sum(int(row.blink_markers) for row in rows)
+    negative_markers = sum(int(row.negative_markers) for row in rows)
+    fused_marker_total = sum(int(row.fused_marker_total) for row in rows)
+    fused_event_total = sum(int(row.fused_event_total) for row in rows)
+    fused_true_positive = sum(int(row.fused_true_positive) for row in rows)
+    fused_false_negative = sum(int(row.fused_false_negative) for row in rows)
+    fused_false_positive = sum(int(row.fused_false_positive) for row in rows)
+    fused_negative_conflicts = sum(int(row.fused_negative_conflicts) for row in rows)
+    visual_face_problem_sessions = sum(
+        1 for row in rows if float(row.visual_face_found_rate) < float(min_visual_face_found_rate)
+    )
+    visual_face_ready_sessions = len(rows) - int(visual_face_problem_sessions)
+    fused_precision = _ratio(fused_true_positive, fused_true_positive + fused_false_positive)
+    fused_recall = _ratio(fused_true_positive, fused_true_positive + fused_false_negative)
+    fused_f1 = _ratio(2.0 * fused_precision * fused_recall, fused_precision + fused_recall)
+    reaches_target_recall = float(fused_recall) >= float(target_recall)
+    reaches_min_precision = float(fused_precision) >= float(min_precision)
+    decision_status, recommendation = decide_post_collection_next_step(
+        needs_visual_face=visual_face_problem_sessions > 0,
+        needs_blink_labels=blink_markers < int(min_blink_markers),
+        needs_negative_labels=negative_markers < int(min_negative_markers),
+        reaches_target_recall=reaches_target_recall,
+        reaches_min_precision=reaches_min_precision,
+        fused_false_positive=int(fused_false_positive),
+        fused_negative_conflicts=int(fused_negative_conflicts),
+    )
+    return PostCollectionDatasetSummaryRow(
+        session="ALL",
+        session_count=len(rows),
+        visual_face_ready_sessions=int(visual_face_ready_sessions),
+        visual_face_problem_sessions=int(visual_face_problem_sessions),
+        blink_markers=int(blink_markers),
+        negative_markers=int(negative_markers),
+        min_blink_markers=int(min_blink_markers),
+        min_negative_markers=int(min_negative_markers),
+        fused_marker_total=int(fused_marker_total),
+        fused_event_total=int(fused_event_total),
+        fused_true_positive=int(fused_true_positive),
+        fused_false_negative=int(fused_false_negative),
+        fused_false_positive=int(fused_false_positive),
+        fused_recall=float(fused_recall),
+        fused_precision=float(fused_precision),
+        fused_f1=float(fused_f1),
+        fused_negative_conflicts=int(fused_negative_conflicts),
+        reaches_target_recall=bool(reaches_target_recall),
+        reaches_min_precision=bool(reaches_min_precision),
+        decision_status=decision_status,
+        recommendation=recommendation,
+    )
+
+
 def decide_post_collection_next_step(
     *,
     needs_negative_labels: bool,
@@ -177,11 +334,17 @@ def decide_post_collection_next_step(
     fused_false_positive: int,
     fused_negative_conflicts: int,
     needs_visual_face: bool = False,
+    needs_blink_labels: bool = False,
 ) -> tuple[str, str]:
     if bool(needs_visual_face):
         return (
             "need_visual_face",
             "视觉标注不可用：摄像头/MediaPipe 已运行，但没有稳定看到脸；先调整取景、光照和距离，再重新采集。",
+        )
+    if bool(needs_blink_labels):
+        return (
+            "need_blink_labels",
+            "有效眨眼标记不足；先继续采集自然眨眼，确保视觉状态显示 face。",
         )
     if bool(needs_negative_labels):
         return (
@@ -213,3 +376,29 @@ def write_post_collection_outputs(evaluation: PostCollectionEvaluation, output_d
         writer.writerow(asdict(evaluation.summary))
     with (output_dir / "summary.json").open("w", encoding="utf-8") as handle:
         json.dump(asdict(evaluation.summary), handle, indent=2, ensure_ascii=False)
+
+
+def write_post_collection_dataset_outputs(evaluation: PostCollectionDatasetEvaluation, output_dir: Path) -> None:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _write_dataclass_csv(output_dir / "dataset_post_collection_summary.csv", (evaluation.summary,))
+    _write_dataclass_csv(output_dir / "session_post_collection_summary.csv", evaluation.summaries)
+    with (output_dir / "dataset_summary.json").open("w", encoding="utf-8") as handle:
+        json.dump(asdict(evaluation.summary), handle, indent=2, ensure_ascii=False)
+
+
+def _write_dataclass_csv(path: Path, rows: Sequence[object]) -> None:
+    rows = tuple(rows)
+    with Path(path).open("w", newline="", encoding="utf-8") as handle:
+        if not rows:
+            return
+        writer = csv.DictWriter(handle, fieldnames=list(asdict(rows[0]).keys()))
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(asdict(row))
+
+
+def _ratio(numerator: float, denominator: float) -> float:
+    if float(denominator) == 0.0:
+        return 0.0
+    return float(numerator) / float(denominator)

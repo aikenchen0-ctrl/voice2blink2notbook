@@ -62,10 +62,11 @@ def test_fixed_posture_collection_runs_post_eval_after_detector(monkeypatch, tmp
         calls["detector_argv"] = argv
         return session
 
-    def fake_evaluate_post_collection_session(session_dir, *, output_dir, min_negative_markers):
+    def fake_evaluate_post_collection_session(session_dir, *, output_dir, min_blink_markers, min_negative_markers):
         calls["post_eval"] = {
             "session_dir": Path(session_dir),
             "output_dir": Path(output_dir),
+            "min_blink_markers": min_blink_markers,
             "min_negative_markers": min_negative_markers,
         }
 
@@ -79,6 +80,10 @@ def test_fixed_posture_collection_runs_post_eval_after_detector(monkeypatch, tmp
                 needs_negative_labels = False
                 fused_recall = 0.95
                 fused_precision = 0.85
+                fused_marker_total = 40
+                fused_event_total = 40
+                fused_true_positive = 38
+                fused_false_negative = 2
                 fused_false_positive = 0
                 fused_negative_conflicts = 0
                 sweep_best_recall = 0.96
@@ -108,6 +113,7 @@ def test_fixed_posture_collection_runs_post_eval_after_detector(monkeypatch, tmp
     assert rc == 0
     assert calls["post_eval"]["session_dir"] == session
     assert calls["post_eval"]["output_dir"] == tmp_path / "evals" / "hp_fmcw_test_post_collection_eval"
+    assert calls["post_eval"]["min_blink_markers"] == 40
     assert calls["post_eval"]["min_negative_markers"] == 20
 
 
@@ -123,10 +129,11 @@ def test_fixed_posture_collection_finds_session_when_detector_returns_exit_code(
         new_session.mkdir()
         return 0
 
-    def fake_evaluate_post_collection_session(session_dir, *, output_dir, min_negative_markers):
+    def fake_evaluate_post_collection_session(session_dir, *, output_dir, min_blink_markers, min_negative_markers):
         calls["post_eval"] = {
             "session_dir": Path(session_dir),
             "output_dir": Path(output_dir),
+            "min_blink_markers": min_blink_markers,
             "min_negative_markers": min_negative_markers,
         }
 
@@ -140,6 +147,10 @@ def test_fixed_posture_collection_finds_session_when_detector_returns_exit_code(
                 needs_negative_labels = True
                 fused_recall = 0.0
                 fused_precision = 0.0
+                fused_marker_total = 0
+                fused_event_total = 0
+                fused_true_positive = 0
+                fused_false_negative = 0
                 fused_false_positive = 0
                 fused_negative_conflicts = 0
                 sweep_best_recall = 0.0

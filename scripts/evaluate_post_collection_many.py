@@ -15,17 +15,18 @@ def _ensure_import_path() -> None:
 
 _ensure_import_path()
 
-from hp_acoustic_wave.post_collection_evaluation import evaluate_post_collection_session  # noqa: E402
+from hp_acoustic_wave.post_collection_evaluation import evaluate_post_collection_dataset  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the fast post-collection blink evaluation bundle.")
-    parser.add_argument("session_dir", help="Session directory containing collected CSV files.")
-    parser.add_argument("--output-dir", default=None)
+    parser = argparse.ArgumentParser(description="Run post-collection evaluation across multiple sessions.")
+    parser.add_argument("session_dirs", nargs="+", help="Session directories containing collected CSV files.")
+    parser.add_argument("--output-dir", default="docs/experiments/post_collection_dataset_eval")
     parser.add_argument("--tolerance", type=float, default=0.8)
     parser.add_argument("--ignore-startup", type=float, default=2.0)
     parser.add_argument("--no-require-visual-face", action="store_true")
-    parser.add_argument("--min-blink-markers", type=int, default=1)
+    parser.add_argument("--min-visual-face-found-rate", type=float, default=0.50)
+    parser.add_argument("--min-blink-markers", type=int, default=40)
     parser.add_argument("--min-negative-markers", type=int, default=20)
     parser.add_argument("--target-recall", type=float, default=0.95)
     parser.add_argument("--min-precision", type=float, default=0.80)
@@ -35,18 +36,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    session_dir = Path(args.session_dir)
-    output_dir = (
-        Path(args.output_dir)
-        if args.output_dir is not None
-        else Path("docs") / "experiments" / f"{session_dir.name}_post_collection_eval"
-    )
-    evaluation = evaluate_post_collection_session(
-        session_dir,
+    output_dir = Path(args.output_dir)
+    evaluation = evaluate_post_collection_dataset(
+        [Path(raw) for raw in args.session_dirs],
         output_dir=output_dir,
         tolerance_s=float(args.tolerance),
         ignore_startup_s=float(args.ignore_startup),
         require_visual_face=not bool(args.no_require_visual_face),
+        min_visual_face_found_rate=float(args.min_visual_face_found_rate),
         min_blink_markers=int(args.min_blink_markers),
         min_negative_markers=int(args.min_negative_markers),
         target_recall=float(args.target_recall),
@@ -54,36 +51,25 @@ def main(argv: list[str] | None = None) -> int:
         sweep_min_recall=float(args.sweep_min_recall),
     )
     summary = evaluation.summary
-    print(f"session={session_dir}")
     print(f"output={output_dir}")
     print(
+        "sessions "
+        f"count={summary.session_count} "
+        f"visual_ready={summary.visual_face_ready_sessions} "
+        f"visual_problem={summary.visual_face_problem_sessions}"
+    )
+    print(
         "markers "
-        f"blink={summary.blink_markers} negative={summary.negative_markers} "
-        f"needs_negative_labels={int(summary.needs_negative_labels)}"
-    )
-    print(
-        "visual "
-        f"events={summary.visual_events} valid={summary.valid_visual_events} "
-        f"valid_rate={summary.visual_valid_event_rate:.3f} "
-        f"available_rate={summary.visual_available_rate:.3f} "
-        f"face_found_rate={summary.visual_face_found_rate:.3f}"
-    )
-    print(
-        "layer_best "
-        f"{summary.layer_best_name} recall={summary.layer_best_recall:.3f} "
-        f"precision={summary.layer_best_precision:.3f} f1={summary.layer_best_f1:.3f}"
+        f"blink={summary.blink_markers}/{summary.min_blink_markers} "
+        f"negative={summary.negative_markers}/{summary.min_negative_markers}"
     )
     print(
         "fused "
-        f"recall={summary.fused_recall:.3f} precision={summary.fused_precision:.3f} "
-        f"f1={summary.fused_f1:.3f} fp={summary.fused_false_positive} "
+        f"markers={summary.fused_marker_total} events={summary.fused_event_total} "
+        f"tp={summary.fused_true_positive} fn={summary.fused_false_negative} "
+        f"fp={summary.fused_false_positive} recall={summary.fused_recall:.3f} "
+        f"precision={summary.fused_precision:.3f} f1={summary.fused_f1:.3f} "
         f"negative_conflicts={summary.fused_negative_conflicts}"
-    )
-    print(
-        "sweep_best "
-        f"min_recall={summary.sweep_min_recall:.3f} recall={summary.sweep_best_recall:.3f} "
-        f"precision={summary.sweep_best_precision:.3f} f1={summary.sweep_best_f1:.3f} "
-        f"fp={summary.sweep_best_false_positive}"
     )
     print(
         "targets "

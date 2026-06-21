@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         evaluation = evaluate_post_collection_session(
             Path(session_dir),
             output_dir=output_dir,
+            min_blink_markers=MIN_BLINK_MARKERS,
             min_negative_markers=MIN_NEGATIVE_MARKERS,
         )
         summary = evaluation.summary

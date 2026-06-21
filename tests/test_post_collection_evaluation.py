@@ -1,8 +1,10 @@
 import csv
 
 from hp_acoustic_wave.post_collection_evaluation import (
+    PostCollectionSummaryRow,
     decide_post_collection_next_step,
     evaluate_post_collection_session,
+    summarize_post_collection_dataset,
 )
 
 
@@ -76,6 +78,17 @@ def test_decide_post_collection_next_step_orders_gates():
             fused_negative_conflicts=0,
         )[0]
         == "need_visual_face"
+    )
+    assert (
+        decide_post_collection_next_step(
+            needs_blink_labels=True,
+            needs_negative_labels=True,
+            reaches_target_recall=True,
+            reaches_min_precision=True,
+            fused_false_positive=0,
+            fused_negative_conflicts=0,
+        )[0]
+        == "need_blink_labels"
     )
     assert (
         decide_post_collection_next_step(
@@ -163,6 +176,84 @@ def test_post_collection_evaluation_prioritizes_missing_visual_face(tmp_path):
     assert evaluation.summary.decision_status == "need_visual_face"
 
 
+def test_summarize_post_collection_dataset_aggregates_counts_and_gates():
+    summary = summarize_post_collection_dataset(
+        [
+            _summary_row(
+                session="a",
+                blink_markers=30,
+                negative_markers=15,
+                visual_face_found_rate=1.0,
+                fused_true_positive=29,
+                fused_false_negative=1,
+                fused_false_positive=0,
+            ),
+            _summary_row(
+                session="b",
+                blink_markers=15,
+                negative_markers=10,
+                visual_face_found_rate=1.0,
+                fused_true_positive=14,
+                fused_false_negative=1,
+                fused_false_positive=0,
+            ),
+        ],
+        min_blink_markers=40,
+        min_negative_markers=20,
+        target_recall=0.95,
+        min_precision=0.80,
+    )
+
+    assert summary.session_count == 2
+    assert summary.blink_markers == 45
+    assert summary.negative_markers == 25
+    assert summary.fused_true_positive == 43
+    assert summary.fused_false_negative == 2
+    assert summary.fused_false_positive == 0
+    assert round(summary.fused_recall, 6) == round(43 / 45, 6)
+    assert summary.fused_precision == 1.0
+    assert summary.decision_status == "ready_for_realtime_validation"
+
+
+def test_summarize_post_collection_dataset_blocks_false_positives():
+    summary = summarize_post_collection_dataset(
+        [
+            _summary_row(
+                session="a",
+                blink_markers=40,
+                negative_markers=20,
+                visual_face_found_rate=1.0,
+                fused_true_positive=40,
+                fused_false_positive=1,
+            )
+        ],
+        min_blink_markers=40,
+        min_negative_markers=20,
+        target_recall=0.95,
+        min_precision=0.80,
+    )
+
+    assert summary.fused_recall == 1.0
+    assert summary.decision_status == "needs_false_positive_iteration"
+
+
+def test_summarize_post_collection_dataset_prioritizes_visual_problem():
+    summary = summarize_post_collection_dataset(
+        [
+            _summary_row(
+                session="bad_visual",
+                blink_markers=40,
+                negative_markers=20,
+                visual_face_found_rate=0.0,
+                fused_true_positive=40,
+            )
+        ]
+    )
+
+    assert summary.visual_face_problem_sessions == 1
+    assert summary.decision_status == "need_visual_face"
+
+
 def _feature_row(time_s, blink_score, twinkle_peak):
     return {
         "time_s": str(time_s),
@@ -178,6 +269,57 @@ def _feature_row(time_s, blink_score, twinkle_peak):
         "fmcw_track_delta_rms": "0.01",
         "fmcw_confirm_window_confidence": "0.0",
     }
+
+
+def _summary_row(
+    *,
+    session,
+    blink_markers,
+    negative_markers,
+    visual_face_found_rate,
+    fused_true_positive=0,
+    fused_false_negative=0,
+    fused_false_positive=0,
+    fused_negative_conflicts=0,
+):
+    fused_event_total = int(fused_true_positive) + int(fused_false_positive)
+    fused_marker_total = int(fused_true_positive) + int(fused_false_negative)
+    precision = fused_true_positive / fused_event_total if fused_event_total else 0.0
+    recall = fused_true_positive / fused_marker_total if fused_marker_total else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+    return PostCollectionSummaryRow(
+        session=session,
+        blink_markers=blink_markers,
+        negative_markers=negative_markers,
+        visual_events=blink_markers,
+        valid_visual_events=blink_markers,
+        visual_valid_event_rate=1.0,
+        visual_available_rate=1.0,
+        visual_face_found_rate=visual_face_found_rate,
+        layer_best_name="fused",
+        layer_best_recall=recall,
+        layer_best_precision=precision,
+        layer_best_f1=f1,
+        fused_recall=recall,
+        fused_precision=precision,
+        fused_f1=f1,
+        fused_marker_total=fused_marker_total,
+        fused_event_total=fused_event_total,
+        fused_true_positive=fused_true_positive,
+        fused_false_negative=fused_false_negative,
+        fused_false_positive=fused_false_positive,
+        fused_negative_conflicts=fused_negative_conflicts,
+        sweep_min_recall=0.85,
+        sweep_best_recall=recall,
+        sweep_best_precision=precision,
+        sweep_best_f1=f1,
+        sweep_best_false_positive=fused_false_positive,
+        needs_negative_labels=negative_markers < 20,
+        reaches_target_recall=recall >= 0.95,
+        reaches_min_precision=precision >= 0.80,
+        decision_status="ready_for_realtime_validation",
+        recommendation="ok",
+    )
 
 
 def _write_csv(path, rows):
