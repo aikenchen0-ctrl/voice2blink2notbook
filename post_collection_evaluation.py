@@ -11,7 +11,9 @@ from hp_acoustic_wave.blink_layer_evaluation import (
     write_blink_layer_outputs,
 )
 from hp_acoustic_wave.candidate_fusion_evaluation import (
+    aggregate_candidate_fusion_evaluations,
     evaluate_candidate_fusion_session,
+    write_candidate_fusion_aggregate_outputs,
     write_candidate_fusion_outputs,
 )
 from hp_acoustic_wave.candidate_fusion_sweep import (
@@ -86,6 +88,15 @@ class PostCollectionDatasetSummaryRow:
     fused_precision: float
     fused_f1: float
     fused_negative_conflicts: int
+    sweep_min_recall: float
+    best_sweep_min_vote_evidence: float
+    best_sweep_min_abs_trajectory_value: float
+    best_sweep_min_pair_stability: float
+    best_sweep_recall: float
+    best_sweep_precision: float
+    best_sweep_f1: float
+    best_sweep_false_positive: int
+    best_sweep_negative_conflicts: int
     reaches_target_recall: bool
     reaches_min_precision: bool
     decision_status: str
@@ -232,6 +243,7 @@ def evaluate_post_collection_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     session_summaries = []
+    fusion_evaluations = []
     for session_dir in session_paths:
         evaluation = evaluate_post_collection_session(
             session_dir,
@@ -247,9 +259,26 @@ def evaluate_post_collection_dataset(
             sweep_min_recall=float(sweep_min_recall),
         )
         session_summaries.append(evaluation.summary)
+        fusion_evaluations.append(
+            evaluate_candidate_fusion_session(
+                session_dir,
+                tolerance_s=float(tolerance_s),
+                ignore_startup_s=float(ignore_startup_s),
+                require_visual_face=bool(require_visual_face),
+            )
+        )
+
+    fusion_aggregate = aggregate_candidate_fusion_evaluations(fusion_evaluations)
+    write_candidate_fusion_aggregate_outputs(fusion_aggregate, output_dir / "candidate_fusion_aggregate")
+    best_sweep = best_dataset_fmcw_sweep_row(
+        fusion_aggregate.fmcw_sweep,
+        min_recall=float(sweep_min_recall),
+    )
 
     summary = summarize_post_collection_dataset(
         session_summaries,
+        best_sweep=best_sweep,
+        sweep_min_recall=float(sweep_min_recall),
         min_visual_face_found_rate=float(min_visual_face_found_rate),
         min_blink_markers=int(min_blink_markers),
         min_negative_markers=int(min_negative_markers),
@@ -268,6 +297,8 @@ def evaluate_post_collection_dataset(
 def summarize_post_collection_dataset(
     summaries: Sequence[PostCollectionSummaryRow],
     *,
+    best_sweep: object | None = None,
+    sweep_min_recall: float = 0.85,
     min_visual_face_found_rate: float = 0.50,
     min_blink_markers: int = 40,
     min_negative_markers: int = 20,
@@ -319,11 +350,38 @@ def summarize_post_collection_dataset(
         fused_precision=float(fused_precision),
         fused_f1=float(fused_f1),
         fused_negative_conflicts=int(fused_negative_conflicts),
+        sweep_min_recall=float(sweep_min_recall),
+        best_sweep_min_vote_evidence=0.0 if best_sweep is None else float(best_sweep.min_vote_evidence),
+        best_sweep_min_abs_trajectory_value=0.0
+        if best_sweep is None
+        else float(best_sweep.min_abs_trajectory_value),
+        best_sweep_min_pair_stability=0.0 if best_sweep is None else float(best_sweep.min_pair_stability),
+        best_sweep_recall=0.0 if best_sweep is None else float(best_sweep.recall),
+        best_sweep_precision=0.0 if best_sweep is None else float(best_sweep.precision),
+        best_sweep_f1=0.0 if best_sweep is None else float(best_sweep.f1),
+        best_sweep_false_positive=0 if best_sweep is None else int(best_sweep.false_positive),
+        best_sweep_negative_conflicts=0 if best_sweep is None else int(best_sweep.negative_conflict_total),
         reaches_target_recall=bool(reaches_target_recall),
         reaches_min_precision=bool(reaches_min_precision),
         decision_status=decision_status,
         recommendation=recommendation,
     )
+
+
+def best_dataset_fmcw_sweep_row(rows: Sequence[object], *, min_recall: float = 0.85) -> object | None:
+    eligible = [row for row in rows if float(row.recall) >= float(min_recall)]
+    if not eligible:
+        return None
+    return sorted(
+        eligible,
+        key=lambda row: (
+            int(row.negative_conflict_total),
+            -float(row.f1),
+            -float(row.precision),
+            int(row.false_positive),
+            -float(row.recall),
+        ),
+    )[0]
 
 
 def decide_post_collection_next_step(

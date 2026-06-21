@@ -72,6 +72,18 @@ def main(argv: list[str] | None = None) -> int:
         f"negative_conflicts={summary.fused_negative_conflicts}"
     )
     print(
+        "best_sweep "
+        f"min_recall={summary.sweep_min_recall:.3f} "
+        f"min_vote={summary.best_sweep_min_vote_evidence:.3f} "
+        f"min_abs_traj={summary.best_sweep_min_abs_trajectory_value:.3f} "
+        f"min_pair_stability={summary.best_sweep_min_pair_stability:.3f} "
+        f"recall={summary.best_sweep_recall:.3f} "
+        f"precision={summary.best_sweep_precision:.3f} "
+        f"f1={summary.best_sweep_f1:.3f} "
+        f"fp={summary.best_sweep_false_positive} "
+        f"negative_conflicts={summary.best_sweep_negative_conflicts}"
+    )
+    print(
         "targets "
         f"recall={int(summary.reaches_target_recall)} "
         f"precision={int(summary.reaches_min_precision)}"

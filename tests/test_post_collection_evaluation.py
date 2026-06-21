@@ -1,7 +1,9 @@
 import csv
+from dataclasses import dataclass
 
 from hp_acoustic_wave.post_collection_evaluation import (
     PostCollectionSummaryRow,
+    best_dataset_fmcw_sweep_row,
     decide_post_collection_next_step,
     evaluate_post_collection_session,
     summarize_post_collection_dataset,
@@ -198,6 +200,17 @@ def test_summarize_post_collection_dataset_aggregates_counts_and_gates():
                 fused_false_positive=0,
             ),
         ],
+        best_sweep=_sweep_row(
+            min_vote_evidence=0.4,
+            min_abs_trajectory_value=0.2,
+            min_pair_stability=0.5,
+            recall=0.96,
+            precision=0.92,
+            f1=0.94,
+            false_positive=3,
+            negative_conflict_total=0,
+        ),
+        sweep_min_recall=0.95,
         min_blink_markers=40,
         min_negative_markers=20,
         target_recall=0.95,
@@ -212,6 +225,9 @@ def test_summarize_post_collection_dataset_aggregates_counts_and_gates():
     assert summary.fused_false_positive == 0
     assert round(summary.fused_recall, 6) == round(43 / 45, 6)
     assert summary.fused_precision == 1.0
+    assert summary.best_sweep_min_vote_evidence == 0.4
+    assert summary.best_sweep_precision == 0.92
+    assert summary.best_sweep_false_positive == 3
     assert summary.decision_status == "ready_for_realtime_validation"
 
 
@@ -254,6 +270,60 @@ def test_summarize_post_collection_dataset_prioritizes_visual_problem():
     assert summary.decision_status == "need_visual_face"
 
 
+def test_best_dataset_fmcw_sweep_row_prefers_no_negative_conflict_then_f1():
+    best = best_dataset_fmcw_sweep_row(
+        [
+            _sweep_row(
+                min_vote_evidence=0.0,
+                min_abs_trajectory_value=0.0,
+                min_pair_stability=0.0,
+                recall=0.99,
+                precision=0.80,
+                f1=0.88,
+                false_positive=4,
+                negative_conflict_total=1,
+            ),
+            _sweep_row(
+                min_vote_evidence=0.4,
+                min_abs_trajectory_value=0.2,
+                min_pair_stability=0.5,
+                recall=0.96,
+                precision=0.93,
+                f1=0.945,
+                false_positive=1,
+                negative_conflict_total=0,
+            ),
+            _sweep_row(
+                min_vote_evidence=0.6,
+                min_abs_trajectory_value=0.3,
+                min_pair_stability=0.8,
+                recall=0.90,
+                precision=1.00,
+                f1=0.947,
+                false_positive=0,
+                negative_conflict_total=0,
+            ),
+        ],
+        min_recall=0.95,
+    )
+
+    assert best is not None
+    assert best.min_vote_evidence == 0.4
+    assert best.negative_conflict_total == 0
+
+
+@dataclass(frozen=True)
+class _SweepRow:
+    min_vote_evidence: float
+    min_abs_trajectory_value: float
+    min_pair_stability: float
+    recall: float
+    precision: float
+    f1: float
+    false_positive: int
+    negative_conflict_total: int
+
+
 def _feature_row(time_s, blink_score, twinkle_peak):
     return {
         "time_s": str(time_s),
@@ -269,6 +339,29 @@ def _feature_row(time_s, blink_score, twinkle_peak):
         "fmcw_track_delta_rms": "0.01",
         "fmcw_confirm_window_confidence": "0.0",
     }
+
+
+def _sweep_row(
+    *,
+    min_vote_evidence,
+    min_abs_trajectory_value,
+    min_pair_stability,
+    recall,
+    precision,
+    f1,
+    false_positive,
+    negative_conflict_total,
+):
+    return _SweepRow(
+        min_vote_evidence=min_vote_evidence,
+        min_abs_trajectory_value=min_abs_trajectory_value,
+        min_pair_stability=min_pair_stability,
+        recall=recall,
+        precision=precision,
+        f1=f1,
+        false_positive=false_positive,
+        negative_conflict_total=negative_conflict_total,
+    )
 
 
 def _summary_row(
