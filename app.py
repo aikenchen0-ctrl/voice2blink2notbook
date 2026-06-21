@@ -308,6 +308,8 @@ class RealtimeHandWaveApp:
             available=False,
         )
         self.visual_blink_auto_marker_count = 0
+        self.visual_blink_sample_count = 0
+        self.visual_blink_face_found_count = 0
         self._last_visual_process_time = -1e9
         self.audio_device_selection = None
         self._profile_time: dict[str, float] = {}
@@ -1518,7 +1520,15 @@ class RealtimeHandWaveApp:
             return "视觉/Visual=initializing"
         auto_text = "auto" if bool(self.config.visual_blink.auto_mark_blinks) else "view"
         face_text = "face" if result.face_found else "no-face"
-        return f"视觉/Visual={result.blink_count} {face_text} {auto_text}"
+        face_rate = (
+            self.visual_blink_face_found_count / self.visual_blink_sample_count
+            if self.visual_blink_sample_count > 0
+            else 0.0
+        )
+        return (
+            f"视觉/Visual blink={result.blink_count} auto={self.visual_blink_auto_marker_count} "
+            f"{face_text} face={face_rate:.0%} {auto_text}"
+        )
 
     def _overlay_text_snapshot_for_frame(self) -> tuple[bool, str, str, str, str]:
         now = time.monotonic()
@@ -1582,6 +1592,10 @@ class RealtimeHandWaveApp:
             self._last_visual_process_time = now
             result = self.visual_blink_detector.process_frame(frame)
             self.latest_visual_blink_result = result
+            if result.available:
+                self.visual_blink_sample_count += 1
+                if result.face_found:
+                    self.visual_blink_face_found_count += 1
             self._overlay_text_snapshot = None
             if self.writer is not None:
                 self.writer.write_visual_feature(self._visual_feature_row(result))

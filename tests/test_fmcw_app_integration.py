@@ -95,12 +95,33 @@ def test_app_overlay_prompts_camera_adjustment_when_visual_has_no_face():
         available=True,
         face_found=False,
     )
+    app.visual_blink_sample_count = 4
+    app.visual_blink_face_found_count = 3
+    app.visual_blink_auto_marker_count = 2
 
     is_detected, status_label, _, title, _ = app._overlay_texts()
 
     assert not is_detected
     assert status_label == "调整摄像头 / No face"
     assert "no-face" in title
+    assert "auto=2" in title
+    assert "face=75%" in title
+
+
+def test_app_tracks_visual_face_found_rate_for_collection_quality():
+    app = RealtimeHandWaveApp(AppConfig(mode="fmcw"))
+
+    app.latest_visual_blink_result = VisualBlinkResult(
+        enabled=True,
+        available=True,
+        face_found=True,
+        blink_count=3,
+    )
+    app.visual_blink_sample_count = 10
+    app.visual_blink_face_found_count = 9
+
+    assert "blink=3" in app._visual_blink_progress_text()
+    assert "face=90%" in app._visual_blink_progress_text()
 
 
 def test_app_marker_buttons_write_same_labels_as_keys():
