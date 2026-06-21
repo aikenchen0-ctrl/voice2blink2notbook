@@ -6,7 +6,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
-from hp_acoustic_wave.event_evaluation import EventEvaluation, evaluate_events, write_event_evaluation_outputs
+from hp_acoustic_wave.event_evaluation import (
+    EventEvaluation,
+    evaluate_events,
+    visual_face_time_ranges,
+    write_event_evaluation_outputs,
+)
 
 
 @dataclass(frozen=True)
@@ -45,10 +50,16 @@ def evaluate_logged_gate_session(
     tolerance_s: float = 0.8,
     positive_labels: Sequence[str] = ("blink",),
     ignore_startup_s: float = 2.0,
+    require_visual_face: bool = False,
 ) -> LoggedGateEvaluation:
     session_dir = Path(session_dir)
     features = read_csv_rows(session_dir / "features.csv")
     markers = read_csv_rows(session_dir / "manual_markers.csv")
+    valid_time_ranges = (
+        visual_face_time_ranges(session_dir / "visual_features.csv")
+        if bool(require_visual_face)
+        else None
+    )
     events = detect_logged_gate_events(
         session_name=session_dir.name,
         feature_rows=features,
@@ -68,6 +79,7 @@ def evaluate_logged_gate_session(
         positive_labels=positive_labels,
         event_labels=(event_column,),
         ignore_startup_s=ignore_startup_s,
+        valid_time_ranges=valid_time_ranges,
     )
     return LoggedGateEvaluation(
         session=session_dir.name,

@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tolerance", type=float, default=0.8, help="Maximum absolute event-marker offset in seconds.")
     parser.add_argument("--ignore-startup", type=float, default=2.0, help="Ignore markers/events before this time.")
     parser.add_argument(
+        "--require-visual-face",
+        action="store_true",
+        help="Only score markers/events inside visual_features.csv rows where visual is available and a face is found.",
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Output directory. Defaults to docs/experiments/<session>_<event_column>_eval.",
@@ -55,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         refractory_s=float(args.refractory),
         tolerance_s=float(args.tolerance),
         ignore_startup_s=float(args.ignore_startup),
+        require_visual_face=bool(args.require_visual_face),
     )
     write_logged_gate_outputs(evaluation, output_dir)
     metric = evaluation.event_evaluation.metrics[0]

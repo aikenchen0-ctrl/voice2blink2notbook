@@ -106,6 +106,47 @@ def test_logged_gate_session_evaluates_against_blink_markers(tmp_path):
     assert metric.false_positive == 1
 
 
+def test_logged_gate_session_can_mask_events_to_visual_face_ranges(tmp_path):
+    session = tmp_path / "session"
+    session.mkdir()
+    feature_rows = [
+        {"time_s": "1.0", "gate": "1", "blink_score": "0.08"},
+        {"time_s": "1.1", "gate": "0", "blink_score": "0.01"},
+        {"time_s": "5.0", "gate": "1", "blink_score": "0.09"},
+    ]
+    marker_rows = [{"time_s": "1.0", "label": "blink", "key": "b"}]
+    visual_rows = [
+        {"time_s": "0.9", "available": "1", "face_found": "1"},
+        {"time_s": "1.0", "available": "1", "face_found": "1"},
+        {"time_s": "1.1", "available": "1", "face_found": "1"},
+        {"time_s": "5.0", "available": "1", "face_found": "0"},
+    ]
+    _write_csv(session / "features.csv", feature_rows)
+    _write_csv(session / "manual_markers.csv", marker_rows)
+    _write_csv(session / "visual_features.csv", visual_rows)
+
+    unmasked = evaluate_logged_gate_session(
+        session,
+        event_column="gate",
+        score_column="blink_score",
+        threshold=0.5,
+        tolerance_s=0.3,
+        ignore_startup_s=0.0,
+    )
+    masked = evaluate_logged_gate_session(
+        session,
+        event_column="gate",
+        score_column="blink_score",
+        threshold=0.5,
+        tolerance_s=0.3,
+        ignore_startup_s=0.0,
+        require_visual_face=True,
+    )
+
+    assert unmasked.event_evaluation.metrics[0].false_positive == 1
+    assert masked.event_evaluation.metrics[0].false_positive == 0
+
+
 def _write_csv(path, rows):
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
