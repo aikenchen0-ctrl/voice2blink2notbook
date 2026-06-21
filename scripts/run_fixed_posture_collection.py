@@ -13,6 +13,7 @@ for path in (PACKAGE_PARENT, REPO_ROOT):
         sys.path.insert(0, str(path))
 
 from hp_acoustic_wave.cli import main as detector_main
+from hp_acoustic_wave.post_collection_evaluation import evaluate_post_collection_session
 
 
 MIN_BLINK_MARKERS = 40
@@ -32,6 +33,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-fps", type=float, default=10.0)
     parser.add_argument("--record-video", action="store_true", help="Keep camera.mp4; default skips video encoding.")
     parser.add_argument("--no-profile", action="store_true", help="Disable runtime timing stats.")
+    parser.add_argument(
+        "--no-post-eval",
+        action="store_true",
+        help="Skip the fast post-collection evaluation bundle after the detector exits.",
+    )
+    parser.add_argument(
+        "--post-eval-output-root",
+        default="docs/experiments",
+        help="Directory where post-collection evaluation outputs are written.",
+    )
     parser.add_argument(
         "detector_args",
         nargs=argparse.REMAINDER,
@@ -86,7 +97,35 @@ def main(argv: list[str] | None = None) -> int:
     print("  keep head/device posture fixed until collection ends")
     print("  fmcw_phase_points logging: enabled")
     print("  keys in terminal or window: b=manual blink, w=large_motion, q/Esc=quit")
-    return detector_main(detector_argv)
+    session_dir = detector_main(detector_argv)
+    if session_dir is None:
+        return 1
+    if not bool(args.no_post_eval):
+        output_dir = Path(args.post_eval_output_root) / f"{Path(session_dir).name}_post_collection_eval"
+        evaluation = evaluate_post_collection_session(
+            Path(session_dir),
+            output_dir=output_dir,
+            min_negative_markers=MIN_NEGATIVE_MARKERS,
+        )
+        summary = evaluation.summary
+        print("Post-collection evaluation:")
+        print(f"  output: {output_dir}")
+        print(
+            "  markers: "
+            f"blink={summary.blink_markers} negative={summary.negative_markers} "
+            f"needs_negative_labels={int(summary.needs_negative_labels)}"
+        )
+        print(
+            "  fused: "
+            f"recall={summary.fused_recall:.3f} precision={summary.fused_precision:.3f} "
+            f"fp={summary.fused_false_positive} negative_conflicts={summary.fused_negative_conflicts}"
+        )
+        print(
+            "  sweep_best: "
+            f"recall={summary.sweep_best_recall:.3f} precision={summary.sweep_best_precision:.3f} "
+            f"fp={summary.sweep_best_false_positive}"
+        )
+    return 0
 
 
 if __name__ == "__main__":
