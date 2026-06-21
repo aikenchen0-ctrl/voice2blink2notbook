@@ -33,6 +33,8 @@ class PostCollectionSummaryRow:
     visual_events: int
     valid_visual_events: int
     visual_valid_event_rate: float
+    visual_available_rate: float
+    visual_face_found_rate: float
     layer_best_name: str
     layer_best_recall: float
     layer_best_precision: float
@@ -50,6 +52,8 @@ class PostCollectionSummaryRow:
     needs_negative_labels: bool
     reaches_target_recall: bool
     reaches_min_precision: bool
+    decision_status: str
+    recommendation: str
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,7 @@ def evaluate_post_collection_session(
     tolerance_s: float = 0.8,
     ignore_startup_s: float = 2.0,
     require_visual_face: bool = True,
+    min_visual_face_found_rate: float = 0.50,
     min_negative_markers: int = 20,
     target_recall: float = 0.95,
     min_precision: float = 0.80,
@@ -114,6 +119,22 @@ def evaluate_post_collection_session(
     best_sweep = best_sweep_rows(sweep_eval.rows, min_recall=float(sweep_min_recall), limit=1)
     sweep_best = best_sweep[0] if best_sweep else None
 
+    needs_negative_labels = int(marker_summary.negative_markers) < int(min_negative_markers)
+    reaches_target_recall = float(fused_metric.recall) >= float(target_recall)
+    reaches_min_precision = float(fused_metric.precision) >= float(min_precision)
+    needs_visual_face = (
+        bool(require_visual_face)
+        and int(visual_audit.summary.row_total) > 0
+        and float(visual_audit.summary.face_found_rate) < float(min_visual_face_found_rate)
+    )
+    decision_status, recommendation = decide_post_collection_next_step(
+        needs_visual_face=needs_visual_face,
+        needs_negative_labels=needs_negative_labels,
+        reaches_target_recall=reaches_target_recall,
+        reaches_min_precision=reaches_min_precision,
+        fused_false_positive=int(fused_metric.false_positive),
+        fused_negative_conflicts=int(fusion_eval.summary.fused_negative_conflict_total),
+    )
     summary = PostCollectionSummaryRow(
         session=session_dir.name,
         blink_markers=int(marker_summary.blink_markers),
@@ -121,6 +142,8 @@ def evaluate_post_collection_session(
         visual_events=int(visual_audit.summary.visual_event_total),
         valid_visual_events=int(visual_audit.summary.valid_visual_event_total),
         visual_valid_event_rate=float(visual_audit.summary.valid_visual_event_rate),
+        visual_available_rate=float(visual_audit.summary.available_rate),
+        visual_face_found_rate=float(visual_audit.summary.face_found_rate),
         layer_best_name=str(layer_best.layer),
         layer_best_recall=float(layer_best.recall),
         layer_best_precision=float(layer_best.precision),
@@ -135,13 +158,50 @@ def evaluate_post_collection_session(
         sweep_best_precision=0.0 if sweep_best is None else float(sweep_best.precision),
         sweep_best_f1=0.0 if sweep_best is None else float(sweep_best.f1),
         sweep_best_false_positive=0 if sweep_best is None else int(sweep_best.false_positive),
-        needs_negative_labels=int(marker_summary.negative_markers) < int(min_negative_markers),
-        reaches_target_recall=float(fused_metric.recall) >= float(target_recall),
-        reaches_min_precision=float(fused_metric.precision) >= float(min_precision),
+        needs_negative_labels=needs_negative_labels,
+        reaches_target_recall=reaches_target_recall,
+        reaches_min_precision=reaches_min_precision,
+        decision_status=decision_status,
+        recommendation=recommendation,
     )
     evaluation = PostCollectionEvaluation(session=session_dir.name, summary=summary)
     write_post_collection_outputs(evaluation, output_dir)
     return evaluation
+
+
+def decide_post_collection_next_step(
+    *,
+    needs_negative_labels: bool,
+    reaches_target_recall: bool,
+    reaches_min_precision: bool,
+    fused_false_positive: int,
+    fused_negative_conflicts: int,
+    needs_visual_face: bool = False,
+) -> tuple[str, str]:
+    if bool(needs_visual_face):
+        return (
+            "need_visual_face",
+            "视觉标注不可用：摄像头/MediaPipe 已运行，但没有稳定看到脸；先调整取景、光照和距离，再重新采集。",
+        )
+    if bool(needs_negative_labels):
+        return (
+            "need_negative_labels",
+            "继续固定姿态采集；眨眼照常，挥手/转头/大动作时按终端 w，先补足负样本。",
+        )
+    if not bool(reaches_target_recall):
+        return (
+            "needs_recall_iteration",
+            "负样本已够，但召回未达 95%；优先调主候选/阈值，避免先做强压制。",
+        )
+    if not bool(reaches_min_precision) or int(fused_false_positive) > 0 or int(fused_negative_conflicts) > 0:
+        return (
+            "needs_false_positive_iteration",
+            "召回已够但误报/负样本冲突未达标；优先用分层诊断定位误报来源并压制。",
+        )
+    return (
+        "ready_for_realtime_validation",
+        "离线快评估已达标；把参数接入实时页面，进入人工复测。",
+    )
 
 
 def write_post_collection_outputs(evaluation: PostCollectionEvaluation, output_dir: Path) -> None:

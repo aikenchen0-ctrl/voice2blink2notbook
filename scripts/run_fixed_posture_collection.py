@@ -18,6 +18,7 @@ from hp_acoustic_wave.post_collection_evaluation import evaluate_post_collection
 
 MIN_BLINK_MARKERS = 40
 MIN_NEGATIVE_MARKERS = 20
+SESSION_PREFIX = "hp_fmcw"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,6 +89,38 @@ def fixed_posture_detector_argv(args: argparse.Namespace) -> list[str]:
     return argv + extras
 
 
+def _existing_session_dirs(session_root: str | Path) -> set[Path]:
+    root = Path(session_root)
+    return {path.resolve() for path in root.glob(f"{SESSION_PREFIX}_*") if path.is_dir()}
+
+
+def _new_session_dir(session_root: str | Path, before: set[Path]) -> Path | None:
+    root = Path(session_root)
+    candidates = [
+        path
+        for path in root.glob(f"{SESSION_PREFIX}_*")
+        if path.is_dir() and path.resolve() not in before
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+
+
+def _resolve_session_dir(
+    detector_result: object,
+    *,
+    session_root: str | Path,
+    existing_sessions: set[Path],
+) -> Path | None:
+    if isinstance(detector_result, Path):
+        return detector_result
+    if isinstance(detector_result, str):
+        return Path(detector_result)
+    if isinstance(detector_result, int) and detector_result != 0:
+        return None
+    return _new_session_dir(session_root, existing_sessions)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     detector_argv = fixed_posture_detector_argv(args)
@@ -97,8 +130,17 @@ def main(argv: list[str] | None = None) -> int:
     print("  keep head/device posture fixed until collection ends")
     print("  fmcw_phase_points logging: enabled")
     print("  keys in terminal or window: b=manual blink, w=large_motion, q/Esc=quit")
-    session_dir = detector_main(detector_argv)
+    existing_sessions = _existing_session_dirs(args.session_root)
+    detector_result = detector_main(detector_argv)
+    session_dir = _resolve_session_dir(
+        detector_result,
+        session_root=args.session_root,
+        existing_sessions=existing_sessions,
+    )
     if session_dir is None:
+        if isinstance(detector_result, int) and detector_result != 0:
+            return detector_result
+        print("Detector exited but no new session directory was found.", file=sys.stderr)
         return 1
     if not bool(args.no_post_eval):
         output_dir = Path(args.post_eval_output_root) / f"{Path(session_dir).name}_post_collection_eval"
@@ -116,6 +158,11 @@ def main(argv: list[str] | None = None) -> int:
             f"needs_negative_labels={int(summary.needs_negative_labels)}"
         )
         print(
+            "  visual: "
+            f"events={summary.visual_events} valid={summary.valid_visual_events} "
+            f"face_found_rate={summary.visual_face_found_rate:.3f}"
+        )
+        print(
             "  fused: "
             f"recall={summary.fused_recall:.3f} precision={summary.fused_precision:.3f} "
             f"fp={summary.fused_false_positive} negative_conflicts={summary.fused_negative_conflicts}"
@@ -125,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             f"recall={summary.sweep_best_recall:.3f} precision={summary.sweep_best_precision:.3f} "
             f"fp={summary.sweep_best_false_positive}"
         )
+        print(f"  decision: {summary.decision_status} - {summary.recommendation}")
     return 0
 
 

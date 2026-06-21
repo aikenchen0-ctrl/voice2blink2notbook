@@ -62,7 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     print(
         "visual "
         f"events={summary.visual_events} valid={summary.valid_visual_events} "
-        f"valid_rate={summary.visual_valid_event_rate:.3f}"
+        f"valid_rate={summary.visual_valid_event_rate:.3f} "
+        f"available_rate={summary.visual_available_rate:.3f} "
+        f"face_found_rate={summary.visual_face_found_rate:.3f}"
     )
     print(
         "layer_best "
@@ -86,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         f"recall={int(summary.reaches_target_recall)} "
         f"precision={int(summary.reaches_min_precision)}"
     )
+    print(f"decision {summary.decision_status}: {summary.recommendation}")
     return 0
 
 
