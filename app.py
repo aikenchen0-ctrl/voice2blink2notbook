@@ -1405,6 +1405,7 @@ class RealtimeHandWaveApp:
             hold_s=self.config.detector.detection_hold_s,
             detected_label=self._detected_label(),
         )
+        status_label = status.label
         if status.is_detected:
             if self.config.mode == "blink":
                 detail = f"#{self.latest_event_id}  眨眼候选 / Blink candidate  S={self.last_detection_score:.4f}"
@@ -1455,6 +1456,8 @@ class RealtimeHandWaveApp:
             else:
                 detail = f"#{self.latest_event_id}  E={self.last_detection_energy:.2f}"
         else:
+            if self._visual_blink_needs_face_attention():
+                status_label = "调整摄像头 / No face"
             if self.config.mode == "blink":
                 detail = f"眨眼检测 / Blink detection  S={energy:.4f}  T={threshold:.4f}"
             elif self.config.mode == "fmcw":
@@ -1476,7 +1479,13 @@ class RealtimeHandWaveApp:
             help_text = "目标/Goal: blink + FMCW candidate/confirm   键盘或点击/Keys or click: B blink  W motion  M mark"
         else:
             help_text = "键盘或点击/Keys or click: M manual   q/Esc=quit"
-        return bool(status.is_detected), status.label, detail, title, help_text
+        return bool(status.is_detected), status_label, detail, title, help_text
+
+    def _visual_blink_needs_face_attention(self) -> bool:
+        if not bool(self.config.visual_blink.enabled):
+            return False
+        result = self.latest_visual_blink_result
+        return bool(result.available) and not bool(result.face_found)
 
     def _manual_marker_progress_text(self) -> str:
         blink_target = int(self.config.collection_target_blinks)

@@ -88,6 +88,21 @@ def test_app_tracks_manual_blink_and_large_motion_progress_in_title():
     assert "W motion" in help_text
 
 
+def test_app_overlay_prompts_camera_adjustment_when_visual_has_no_face():
+    app = RealtimeHandWaveApp(AppConfig(mode="fmcw"))
+    app.latest_visual_blink_result = VisualBlinkResult(
+        enabled=True,
+        available=True,
+        face_found=False,
+    )
+
+    is_detected, status_label, _, title, _ = app._overlay_texts()
+
+    assert not is_detected
+    assert status_label == "调整摄像头 / No face"
+    assert "no-face" in title
+
+
 def test_app_marker_buttons_write_same_labels_as_keys():
     app = RealtimeHandWaveApp(AppConfig(mode="fmcw"))
     layout = app._marker_button_layout(320, 240)
